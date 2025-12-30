@@ -1,47 +1,35 @@
 import fs from "fs";
-import { create } from "xmlbuilder2";
 
-export default async function generateXmlX09(empreendimentos) {
-  const root = create({ version: "1.0", encoding: "UTF-8" })
-    .ele("empreendimentos");
+export default async function generateXmlX09(items) {
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<empreendimentos>\n`;
 
-  empreendimentos.forEach(emp => {
-    const node = root.ele("empreendimento");
+  for (const e of items) {
+    xml += `
+  <empreendimento>
+    <Title><![CDATA[${e.title}]]></Title>
+    <ListingID>${e.listingId}</ListingID>
+    <Price>0</Price>
+    <Description><![CDATA[${e.description}]]></Description>
+    <PropertyType>Apartamento</PropertyType>
+    <Status><![CDATA[${e.status}]]></Status>
 
-    node.ele("Title").txt(emp.title || "");
-    node.ele("ListingID").txt(emp.id);
-    node.ele("Price").txt("0");
-    node.ele("Description").txt(
-      `Empreendimento Direcional em ${emp.cidade || ""}.`
-    );
-    node.ele("PropertyType").txt("Apartamento");
-    node.ele("Status").txt(emp.status || "");
+    <Location>
+      <City><![CDATA[${e.city}]]></City>
+      <State><![CDATA[${e.state}]]></State>
+      <Address><![CDATA[${e.address}]]></Address>
+    </Location>
 
-    // Location
-    const loc = node.ele("Location");
-    loc.ele("City").txt(emp.cidade || "");
-    loc.ele("State").txt(emp.estado || "");
-    loc.ele("Address").txt(emp.endereco || "");
+    <Details>
+      ${e.details.map(d => `<Detail><![CDATA[${d}]]></Detail>`).join("\n")}
+    </Details>
 
-    // Details
-    const details = node.ele("Details");
-    emp.tipologias?.forEach(t => {
-      const d = details.ele("Tipologia");
-      d.ele("Dormitorios").txt(t.dormitorios);
-      d.ele("Area").txt(t.area);
-    });
+    <Media>
+      ${e.images.map(img => `<Image><![CDATA[${img}]]></Image>`).join("\n")}
+    </Media>
+  </empreendimento>`;
+  }
 
-    emp.diferenciais?.forEach(dif => {
-      details.ele("Caracteristica").txt(dif);
-    });
+  xml += `\n</empreendimentos>`;
 
-    // Media
-    const media = node.ele("Media");
-    emp.imagens?.forEach(img => {
-      media.ele("Foto").txt(img);
-    });
-  });
-
-  const xml = root.end({ prettyPrint: true });
-  fs.writeFileSync("direcional-x09.xml", xml);
+  fs.writeFileSync("direcional-x09.xml", xml, "utf-8");
 }
