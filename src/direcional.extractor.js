@@ -3,41 +3,53 @@ import { chromium } from "playwright";
 const START_URL = "https://www.direcional.com.br/encontre-seu-apartamento/";
 
 export default async function extractDirecional() {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const browser = await chromium.launch({
+    headless: true,
+  });
+
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 800 },
+  });
+
+  // 🔒 BLINDAGEM TOTAL CONTRA TIMEOUTS DE SCROLL
+  page.setDefaultTimeout(0);
+  page.setDefaultNavigationTimeout(0);
 
   console.log("🚀 Iniciando robô Direcional");
   console.log("Abrindo página principal...");
-  await page.goto(START_URL, { waitUntil: "networkidle" });
+  await page.goto(START_URL, { waitUntil: "domcontentloaded" });
 
-  // =========================================
-  // 1️⃣ CARREGAR TODOS OS EMPREENDIMENTOS
-  // =========================================
+  // =================================================
+  // 1️⃣ CARREGAR TODOS OS EMPREENDIMENTOS (JS PURO)
+  // =================================================
   while (true) {
-    const hasButton = await page.evaluate(() => {
+    const canLoadMore = await page.evaluate(() => {
       const btn = document.querySelector("#load-more-empreendimentos");
       if (!btn) return false;
 
       const style = window.getComputedStyle(btn);
-      return style.display !== "none" && !btn.disabled;
+      if (style.display === "none") return false;
+      if (btn.disabled) return false;
+
+      return true;
     });
 
-    if (!hasButton) {
-      console.log("Botão 'Carregar mais' não disponível. Encerrando.");
+    if (!canLoadMore) {
+      console.log("⛔ Botão 'Carregar mais' indisponível. Encerrando.");
       break;
     }
 
-    console.log("Clicando em 'Carregar mais' (JS)...");
+    console.log("Clicando em 'Carregar mais' (JS direto)...");
     await page.evaluate(() => {
       document.querySelector("#load-more-empreendimentos")?.click();
     });
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1500);
   }
 
-  // =========================================
+  // =================================================
   // 2️⃣ COLETAR LINKS DOS EMPREENDIMENTOS
-  // =========================================
+  // =================================================
   const links = await page.evaluate(() => {
     return Array.from(
       new Set(
@@ -48,20 +60,20 @@ export default async function extractDirecional() {
     );
   });
 
-  console.log(`Total de empreendimentos encontrados: ${links.length}`);
+  console.log(`📦 Total de empreendimentos encontrados: ${links.length}`);
 
   const empreendimentos = [];
 
-  // =========================================
+  // =================================================
   // 3️⃣ PROCESSAR CADA EMPREENDIMENTO
-  // =========================================
+  // =================================================
   for (const url of links) {
     try {
-      console.log(`Processando: ${url}`);
-      await page.goto(url, { waitUntil: "networkidle" });
+      console.log(`➡️ Processando: ${url}`);
+      await page.goto(url, { waitUntil: "domcontentloaded" });
 
-      const data = await page.evaluate(() => {
-        const text = (sel) =>
+      const emp = await page.evaluate(() => {
+        const getText = (sel) =>
           document.querySelector(sel)?.innerText?.trim() || "";
 
         const imagens = Array.from(document.images)
@@ -76,29 +88,29 @@ export default async function extractDirecional() {
           );
 
         return {
-          Title: text("h1"),
+          Title: getText("h1"),
           ListingID: location.pathname.split("/").filter(Boolean).pop(),
           Price: "A",
           Description:
             document.querySelector("meta[name='description']")?.content || "",
           PropertyType: "Apartamento",
-          Status: text("[class*='status'], [class*='tag']"),
+          Status: getText("[class*='status'], [class*='tag']"),
           Location: {
-            Address: text("[class*='endereco'], [class*='address']"),
+            Address: getText("[class*='endereco'], [class*='address']"),
           },
           Details: {
-            Dormitorios: text("[class*='dorm']"),
-            Area: text("[class*='area']"),
+            Dormitorios: getText("[class*='dorm']"),
+            Area: getText("[class*='area']"),
           },
           Media: imagens,
         };
       });
 
-      if (data.Title) {
-        empreendimentos.push(data);
+      if (emp.Title) {
+        empreendimentos.push(emp);
       }
     } catch (err) {
-      console.log("Erro ao processar:", url);
+      console.log("⚠️ Erro ao processar:", url);
     }
   }
 
