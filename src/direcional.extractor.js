@@ -10,49 +10,51 @@ export default async function extractDirecional() {
   console.log("Abrindo página principal...");
   await page.goto(START_URL, { waitUntil: "networkidle" });
 
-  // ===============================
-  // 1️⃣ CARREGAR TODOS OS CARDS
-  // ===============================
+  // =========================================
+  // 1️⃣ CARREGAR TODOS OS EMPREENDIMENTOS
+  // =========================================
   while (true) {
-    const exists = await page.$("#load-more-empreendimentos");
-    if (!exists) {
-      console.log("Botão não existe mais.");
+    const hasButton = await page.evaluate(() => {
+      const btn = document.querySelector("#load-more-empreendimentos");
+      if (!btn) return false;
+
+      const style = window.getComputedStyle(btn);
+      return style.display !== "none" && !btn.disabled;
+    });
+
+    if (!hasButton) {
+      console.log("Botão 'Carregar mais' não disponível. Encerrando.");
       break;
     }
 
-    const visible = await page.isVisible("#load-more-empreendimentos");
-    const enabled = await page.isEnabled("#load-more-empreendimentos");
+    console.log("Clicando em 'Carregar mais' (JS)...");
+    await page.evaluate(() => {
+      document.querySelector("#load-more-empreendimentos")?.click();
+    });
 
-    if (!visible || !enabled) {
-      console.log("Botão não está mais visível/habilitado.");
-      break;
-    }
-
-    console.log("Clicando em 'Carregar mais'...");
-    try {
-      await page.click("#load-more-empreendimentos");
-      await page.waitForTimeout(2000);
-    } catch (err) {
-      console.log("Falha ao clicar, encerrando loop.");
-      break;
-    }
+    await page.waitForTimeout(2000);
   }
 
-  // ===============================
+  // =========================================
   // 2️⃣ COLETAR LINKS DOS EMPREENDIMENTOS
-  // ===============================
-  const links = await page.$$eval(
-    "a[href*='/empreendimentos/']",
-    (els) => [...new Set(els.map((e) => e.href))]
-  );
+  // =========================================
+  const links = await page.evaluate(() => {
+    return Array.from(
+      new Set(
+        Array.from(
+          document.querySelectorAll("a[href*='/empreendimentos/']")
+        ).map((a) => a.href)
+      )
+    );
+  });
 
   console.log(`Total de empreendimentos encontrados: ${links.length}`);
 
   const empreendimentos = [];
 
-  // ===============================
+  // =========================================
   // 3️⃣ PROCESSAR CADA EMPREENDIMENTO
-  // ===============================
+  // =========================================
   for (const url of links) {
     try {
       console.log(`Processando: ${url}`);
@@ -62,7 +64,7 @@ export default async function extractDirecional() {
         const text = (sel) =>
           document.querySelector(sel)?.innerText?.trim() || "";
 
-        const imagens = [...document.images]
+        const imagens = Array.from(document.images)
           .map((img) => img.src)
           .filter(
             (src) =>
@@ -74,25 +76,25 @@ export default async function extractDirecional() {
           );
 
         return {
-          title: text("h1"),
-          listingId: location.pathname.split("/").filter(Boolean).pop(),
-          price: "A",
-          description:
+          Title: text("h1"),
+          ListingID: location.pathname.split("/").filter(Boolean).pop(),
+          Price: "A",
+          Description:
             document.querySelector("meta[name='description']")?.content || "",
-          propertyType: "Apartamento",
-          status: text("[class*='status'], [class*='tag']"),
-          location: {
-            address: text("[class*='endereco'], [class*='address']"),
+          PropertyType: "Apartamento",
+          Status: text("[class*='status'], [class*='tag']"),
+          Location: {
+            Address: text("[class*='endereco'], [class*='address']"),
           },
-          details: {
-            dormitorios: text("[class*='dorm']"),
-            area: text("[class*='area']"),
+          Details: {
+            Dormitorios: text("[class*='dorm']"),
+            Area: text("[class*='area']"),
           },
-          media: imagens,
+          Media: imagens,
         };
       });
 
-      if (data.title) {
+      if (data.Title) {
         empreendimentos.push(data);
       }
     } catch (err) {
@@ -105,4 +107,3 @@ export default async function extractDirecional() {
   console.log(`✅ Total coletado: ${empreendimentos.length}`);
   return empreendimentos;
 }
-
