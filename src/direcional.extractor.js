@@ -3,64 +3,44 @@ import { chromium } from "playwright";
 const START_URL = "https://www.direcional.com.br/encontre-seu-apartamento/";
 
 export default async function extractDirecional() {
-  const browser = await chromium.launch({
-    headless: true,
-  });
-
-  const page = await browser.newPage({
-    viewport: { width: 1280, height: 800 },
-  });
-
-  // 🔒 BLINDAGEM TOTAL CONTRA TIMEOUTS DE SCROLL
-  page.setDefaultTimeout(0);
-  page.setDefaultNavigationTimeout(0);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
 
   console.log("🚀 Iniciando robô Direcional");
-  console.log("Abrindo página principal...");
-  await page.goto(START_URL, { waitUntil: "domcontentloaded" });
+  await page.goto(START_URL, { waitUntil: "networkidle" });
 
   // =================================================
-  // 1️⃣ CARREGAR TODOS OS EMPREENDIMENTOS (JS PURO)
+  // 1️⃣ FORÇAR CARREGAMENTO TOTAL SEM CLICAR EM BOTÃO
   // =================================================
-  while (true) {
-    const canLoadMore = await page.evaluate(() => {
-      const btn = document.querySelector("#load-more-empreendimentos");
-      if (!btn) return false;
-
-      const style = window.getComputedStyle(btn);
-      if (style.display === "none") return false;
-      if (btn.disabled) return false;
-
-      return true;
-    });
-
-    if (!canLoadMore) {
-      console.log("⛔ Botão 'Carregar mais' indisponível. Encerrando.");
-      break;
+  await page.evaluate(async () => {
+    function sleep(ms) {
+      return new Promise((r) => setTimeout(r, ms));
     }
 
-    console.log("Clicando em 'Carregar mais' (JS direto)...");
-    await page.evaluate(() => {
-      document.querySelector("#load-more-empreendimentos")?.click();
-    });
+    while (true) {
+      const btn = document.querySelector("#load-more-empreendimentos");
+      if (!btn) break;
+      if (btn.disabled) break;
 
-    await page.waitForTimeout(1500);
-  }
+      btn.click();
+      await sleep(1200);
+    }
+  });
 
   // =================================================
-  // 2️⃣ COLETAR LINKS DOS EMPREENDIMENTOS
+  // 2️⃣ COLETAR LINKS
   // =================================================
-  const links = await page.evaluate(() => {
-    return Array.from(
+  const links = await page.evaluate(() =>
+    Array.from(
       new Set(
         Array.from(
           document.querySelectorAll("a[href*='/empreendimentos/']")
         ).map((a) => a.href)
       )
-    );
-  });
+    )
+  );
 
-  console.log(`📦 Total de empreendimentos encontrados: ${links.length}`);
+  console.log(`📦 Total de empreendimentos: ${links.length}`);
 
   const empreendimentos = [];
 
@@ -69,53 +49,44 @@ export default async function extractDirecional() {
   // =================================================
   for (const url of links) {
     try {
-      console.log(`➡️ Processando: ${url}`);
-      await page.goto(url, { waitUntil: "domcontentloaded" });
+      console.log(`➡️ ${url}`);
+      await page.goto(url, { waitUntil: "networkidle" });
 
-      const emp = await page.evaluate(() => {
-        const getText = (sel) =>
+      const data = await page.evaluate(() => {
+        const txt = (sel) =>
           document.querySelector(sel)?.innerText?.trim() || "";
 
-        const imagens = Array.from(document.images)
-          .map((img) => img.src)
+        const images = Array.from(document.images)
+          .map((i) => i.src)
           .filter(
             (src) =>
               src &&
               src.includes("direcional.com.br") &&
-              !src.includes("icon") &&
-              !src.includes("logo") &&
-              !src.includes("svg")
+              !src.match(/icon|logo|svg/i)
           );
 
         return {
-          Title: getText("h1"),
-          ListingID: location.pathname.split("/").filter(Boolean).pop(),
+          Title: txt("h1"),
+          ListingID: location.pathname.split("/").pop(),
           Price: "A",
           Description:
             document.querySelector("meta[name='description']")?.content || "",
           PropertyType: "Apartamento",
-          Status: getText("[class*='status'], [class*='tag']"),
-          Location: {
-            Address: getText("[class*='endereco'], [class*='address']"),
-          },
-          Details: {
-            Dormitorios: getText("[class*='dorm']"),
-            Area: getText("[class*='area']"),
-          },
-          Media: imagens,
+          Status: txt("[class*='status'], [class*='tag']"),
+          Location: txt("[class*='endereco'], [class*='address']"),
+          Details: txt("body"),
+          Media: images,
         };
       });
 
-      if (emp.Title) {
-        empreendimentos.push(emp);
-      }
-    } catch (err) {
+      if (data.Title) empreendimentos.push(data);
+    } catch (e) {
       console.log("⚠️ Erro ao processar:", url);
     }
   }
 
   await browser.close();
+  console.log(`✅ Coletados ${empreendimentos.length} empreendimentos`);
 
-  console.log(`✅ Total coletado: ${empreendimentos.length}`);
   return empreendimentos;
 }
