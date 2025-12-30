@@ -10,6 +10,5 @@ import generateXmlX09 from "./xml/generateXml.x09.js";
 
   await generateXmlX09(empreendimentos);
 
-  console.log("✅ XML X09 gerado com sucesso");
+  console.log("✅ XML X09 gerado com sucesso: direcional-x09.xml");
 })();
-
