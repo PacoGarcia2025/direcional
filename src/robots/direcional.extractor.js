@@ -1,135 +1,101 @@
 import { chromium } from "playwright";
 
-const START_URL = "https://www.direcional.com.br/empreendimentos";
+const START_URL = "https://www.direcional.com.br/encontre-seu-apartamento/";
 
 export default async function extractDirecional() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
-  console.log("🌐 Abrindo listagem Direcional");
-  await page.goto(START_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+  console.log("Abrindo página principal...");
+  await page.goto(START_URL, { waitUntil: "networkidle" });
 
-  // 🔁 Carregar todos os empreendimentos
-  let lastCount = 0;
+  // ===============================
+  // 1️⃣ CLICAR EM "CARREGAR MAIS"
+  // ===============================
   while (true) {
-    const { count, hasMore } = await page.evaluate(() => {
-      const cards = document.querySelectorAll('a[href*="/empreendimentos/"]');
-      const btn = [...document.querySelectorAll("button,a")].find(b =>
-        b.innerText?.toLowerCase().includes("carregar")
-      );
-      return { count: cards.length, hasMore: !!btn };
-    });
+    const botao = await page.$("#load-more-empreendimentos");
 
-    if (!hasMore || count === lastCount) break;
-    lastCount = count;
+    if (!botao) {
+      console.log("Botão 'Carregar mais' não encontrado. Fim da listagem.");
+      break;
+    }
 
-    await page.evaluate(() => {
-      const btn = [...document.querySelectorAll("button,a")].find(b =>
-        b.innerText?.toLowerCase().includes("carregar")
-      );
-      if (btn) btn.click();
-    });
+    console.log("Clicando em 'Carregar mais'...");
+    await botao.scrollIntoViewIfNeeded();
+    await botao.click();
 
+    // Aguarda novos cards carregarem
     await page.waitForTimeout(2500);
   }
 
-  // 🔗 Coletar URLs
-  const urls = await page.evaluate(() => {
-    const set = new Set();
-    document.querySelectorAll('a[href*="/empreendimentos/"]').forEach(a => {
-      if (a.href.includes("/empreendimentos/")) {
-        set.add(a.href.split("?")[0]);
-      }
-    });
-    return [...set];
-  });
+  // ===============================
+  // 2️⃣ COLETAR LINKS DOS CARDS
+  // ===============================
+  const links = await page.$$eval(
+    "a[href*='/empreendimentos/']",
+    (els) => [...new Set(els.map((e) => e.href))]
+  );
 
-  console.log(`🔗 URLs encontradas: ${urls.length}`);
+  console.log(`Total de empreendimentos encontrados: ${links.length}`);
 
-  const results = [];
+  const empreendimentos = [];
 
-  for (const url of urls) {
-    console.log("➡️ Processando:", url);
-
+  // ===============================
+  // 3️⃣ ENTRAR EM CADA EMPREENDIMENTO
+  // ===============================
+  for (const url of links) {
     try {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-      await page.waitForTimeout(2000);
+      console.log(`Processando: ${url}`);
+      await page.goto(url, { waitUntil: "networkidle" });
 
       const data = await page.evaluate(() => {
-        const getText = sel =>
-          document.querySelector(sel)?.innerText.trim() || null;
+        const text = (sel) =>
+          document.querySelector(sel)?.innerText?.trim() || "";
 
-        const title = getText(".highlight-title, h1");
-        const status = getText(".highlight-label");
+        const attr = (sel, att) =>
+          document.querySelector(sel)?.getAttribute(att) || "";
 
-        // Localização
-        let cidade = null;
-        let estado = null;
-        const loc = document.body.innerText.match(/([A-Za-zÀ-ú\s]+)\s*-\s*([A-Z]{2})/);
-        if (loc) {
-          cidade = loc[1].trim();
-          estado = loc[2].trim();
-        }
-
-        // Endereço
-        let endereco = null;
-        document.querySelectorAll("#fichatecnica p").forEach(p => {
-          if (p.innerText.includes("Rua") || p.innerText.includes("Av")) {
-            endereco = p.innerText.trim();
-          }
-        });
-
-        // Tipologias
-        const tipologias = [];
-        document.querySelectorAll("#fichatecnica li").forEach(li => {
-          const dorm = li.innerText.match(/(\d+)\s*Quartos?/i)?.[1];
-          const area = li.innerText.match(/([\d.,]+)\s*m²/i)?.[1];
-          if (dorm && area) {
-            tipologias.push({
-              dormitorios: dorm,
-              area: area.replace(",", ".")
-            });
-          }
-        });
-
-        // Diferenciais
-        const diferenciais = [...document.querySelectorAll("#diferenciais li span")]
-          .map(el => el.innerText.trim())
-          .filter(Boolean);
-
-        // Imagens (refino)
-        const imagens = [...document.images]
-          .map(img => img.src)
-          .filter(src =>
-            src &&
-            src.includes("/imagens/") &&
-            !src.includes("icon") &&
-            !src.includes("logo") &&
-            !src.endsWith(".svg")
+        const imagens = [
+          ...document.querySelectorAll("img[src*='direcional']"),
+        ]
+          .map((img) => img.src)
+          .filter(
+            (src) =>
+              src &&
+              !src.includes("icon") &&
+              !src.includes("logo") &&
+              !src.includes("svg")
           );
 
         return {
-          title,
-          status,
-          cidade,
-          estado,
-          endereco,
-          tipologias,
-          diferenciais,
-          imagens: [...new Set(imagens)]
+          title: text("h1"),
+          listingId: location.pathname.split("/").filter(Boolean).pop(),
+          price: "A",
+          description:
+            document.querySelector("meta[name='description']")?.content || "",
+          propertyType: text(".tipo-imovel") || "Apartamento",
+          status: text(".status, .tag-status"),
+          location: {
+            address: text(".endereco, .address"),
+          },
+          details: {
+            dormitorios: text("[class*='dorm']"),
+            area: text("[class*='area']"),
+          },
+          media: imagens,
         };
       });
 
-      results.push({
-        id: url.split("/").filter(Boolean).pop(),
-        url,
-        ...data
-      });
-    } catch (e) {
-      console.error("❌ Erro:", url);
+      if (data.title) {
+        empreendimentos.push(data);
+      }
+    } catch (err) {
+      console.log("Erro ao processar:", url);
     }
   }
 
   await browser.close();
-  return results;
+
+  console.log(`Total coletado com sucesso: ${empreendimentos.length}`);
+  return empreendimentos;
 }
